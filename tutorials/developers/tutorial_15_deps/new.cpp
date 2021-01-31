@@ -106,7 +106,7 @@ int main(int argc, char **argv)
 
     // get the function object
 
-    tiramisu::function * fct = tiramisu::global::get_implicit_function();
+    
 
    /*
    
@@ -115,7 +115,7 @@ int main(int argc, char **argv)
 
    */
 
-    fct->performe_full_dependecy_analysis();
+    tiramisu::performe_full_dependecy_analysis();
 
 
 /*
@@ -127,14 +127,18 @@ int main(int argc, char **argv)
 
     // full check of legality for this function
 
-    fct->check_legality_for_function() ;
+    tiramisu::check_legality_of_function();
+
+    tiramisu::prepare_schedules_for_legality_checks() ;
+
+    
 
   // legality check for reflexive dependencies S0 -> S0
-    S0.applied_schedule_is_legal() ;
+  
 
   // legality check Previous_Comp -> Next_Comp  
 
-    S0.applied_schedule_is_legal(&S1) ;
+    S0.schedules_pair_relation_is_legal(&S1) ;
 
    
    /*
@@ -154,7 +158,7 @@ int main(int argc, char **argv)
     
   */
 
-  //C_init.parallelization_is_legal(j0,{&S0,&S1}) ;
+  //tiramisu::parallelization_is_legal(j0,{&S0,&S1}) ;
 
     /*
       warning : 
@@ -173,7 +177,6 @@ int main(int argc, char **argv)
       to get this kind of information check the live_out_access private attribute (isl_union_map) that contain detailed information 
    */
 
-  std::vector<tiramisu::computation * > live_out = fct->get_live_out_computations_from_buffers_deps() ;
 
 
 

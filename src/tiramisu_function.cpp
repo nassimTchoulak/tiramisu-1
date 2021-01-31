@@ -343,37 +343,13 @@ void tiramisu::function::calculate_dep_flow()
 
     this->live_out_access = live_out ;
 
-    /*
-    compute all false dep at once i.e: waw + war instead if waw & war separatly as we did above
-    useful maybe if performance is critical & computation number is +50
-
-
-    info = isl_union_access_info_from_sink(isl_union_map_copy(write_access)) ;
-
-    info = isl_union_access_info_set_schedule_map(info,isl_union_map_copy(isl_schedule)) ;
-
-    info = isl_union_access_info_set_may_source(
-        info,
-        isl_union_map_union(isl_union_map_copy(read_access),isl_union_map_copy(write_access))
-        ) 
-        ;
-
-    info = isl_union_access_info_set_kill(info,isl_union_map_copy(write_access)) ;
-
-    flow = isl_union_access_info_compute_flow(info) ;
-
-    isl_union_map * dep_false = isl_union_flow_get_may_dependence(flow);
-
-
-     DEBUG(3, tiramisu::str_dump(" whole false dep waw + war { last_previous_read/write -> new write stmt } : "+std::string(isl_union_map_to_str(dep_false))));
-    
-    */
+  
     
     DEBUG_INDENT(-4);
 
 }
 
- std::vector<tiramisu::computation *> tiramisu::function::get_live_out_computations_from_buffers_deps() const  
+ std::vector<std::pair<computation *,isl_set *>> tiramisu::function::get_live_out_computations_from_buffers_deps() const  
 {
     
 
@@ -385,7 +361,7 @@ void tiramisu::function::calculate_dep_flow()
     DEBUG(3, tiramisu::str_dump(" identifing the computations with the live-out access i.e: last to write to a buffer "));
 
 
-    std::vector<tiramisu::computation *> live_computations ;
+    std::vector<std::pair<tiramisu::computation *,isl_set *>> live_computations ;
 
     isl_union_map * live_out = isl_union_map_copy(this->live_out_access) ;
 
@@ -398,8 +374,9 @@ void tiramisu::function::calculate_dep_flow()
 
         if( ! isl_union_map_is_empty(intersect) )
         {
+            isl_set * res = isl_map_domain(isl_map_from_union_map(intersect)) ;
             // compuation figures in live-out so push
-            live_computations.push_back(computation) ;
+            live_computations.push_back( std::make_pair(computation,res)) ;
 
             DEBUG(3, tiramisu::str_dump(" the computation "+computation->get_name()+" figures in the live_out access "));
 
@@ -410,6 +387,209 @@ void tiramisu::function::calculate_dep_flow()
     DEBUG_INDENT(-4);
 
     return live_computations ;
+}
+
+ std::vector<std::pair<computation *,isl_set *>> tiramisu::function::get_live_in_computations_from_buffers_deps() const  
+{
+    
+
+    assert(this->live_in_access!=NULL) ;
+
+    DEBUG_FCT_NAME(3);
+    DEBUG_INDENT(4);
+
+    DEBUG(3, tiramisu::str_dump(" identifing the computations with the live-in access i.e: last to write to a buffer "));
+
+
+    std::vector<std::pair<tiramisu::computation *,isl_set *>> live_computations ;
+
+    isl_union_map * live_in = isl_union_map_copy(this->live_in_access) ;
+
+    for(auto& computation: this->get_computations())
+    {   
+        isl_union_map * intersect = isl_union_map_intersect(
+            isl_union_map_from_map(isl_map_copy(computation->get_access_relation())),
+            isl_union_map_copy(live_in)
+        );
+
+        if( ! isl_union_map_is_empty(intersect) )
+        {
+            isl_set * res = isl_map_domain(isl_map_from_union_map(intersect)) ;
+        
+            live_computations.push_back( std::make_pair(computation,res)) ;
+
+            DEBUG(3, tiramisu::str_dump(" the computation "+computation->get_name()+" figures in the live_in access "));
+
+        }
+
+    }
+
+    DEBUG_INDENT(-4);
+
+    return live_computations ;
+}
+
+bool tiramisu::function::loop_parallelization_is_legal(tiramisu::var par_dim_var, std::vector<tiramisu::computation *> fuzed_computations )
+{
+    DEBUG_FCT_NAME(3);
+    DEBUG_INDENT(4);
+
+    assert(par_dim_var.get_name().length() > 0);
+    assert(!this->get_name().empty());
+
+    assert(this->dep_read_after_write != NULL ) ;
+    assert(this->dep_write_after_write != NULL ) ;
+    assert(this->dep_write_after_read != NULL ) ;
+    assert(fuzed_computations.size()>0) ;
+
+    computation * first_computation = fuzed_computations[0]  ;
+    
+    DEBUG(3, tiramisu::str_dump(" var parallelization check is : "+par_dim_var.get_name()));
+
+    
+     std::vector<std::string> original_loop_level_names = first_computation->get_loop_level_names();
+
+    std::vector<int> dimensions =
+        first_computation->get_loop_level_numbers_from_dimension_names({par_dim_var.get_name()});
+
+    first_computation->check_dimensions_validity(dimensions);
+
+    bool result = this->loop_parallelization_is_legal(dimensions[0],fuzed_computations) ;
+
+    DEBUG_INDENT(-4);
+
+    return result ;
+}
+
+
+bool tiramisu::function::loop_parallelization_is_legal(int dim_parallel , std::vector<tiramisu::computation *> fuzed_computations)
+{
+
+    DEBUG_FCT_NAME(3);
+    DEBUG_INDENT(4);
+
+    assert(!this->get_name().empty());
+
+    assert(this->dep_read_after_write != NULL ) ;
+    assert(this->dep_write_after_write != NULL ) ;
+    assert(this->dep_write_after_read != NULL ) ;
+    assert(fuzed_computations.size()>0) ;
+
+    computation * first_computation = fuzed_computations[0]  ;
+    
+    std::vector<std::string> original_loop_level_names = first_computation->get_loop_level_names();
+
+    int par_dim = tiramisu::loop_level_into_dynamic_dimension(dim_parallel);
+
+
+    DEBUG(3, tiramisu::str_dump(" par dim number is : "+std::to_string(par_dim)));
+
+
+
+    // extracting deps
+
+     isl_union_map * read_after_write_dep = isl_union_map_range_factor_domain(
+        isl_union_map_copy(this->dep_read_after_write)) ;
+
+    isl_union_map * write_after_read_dep = isl_union_map_range_factor_domain(
+        isl_union_map_copy(this->dep_write_after_read)) ;
+
+    isl_union_map * write_after_write_dep = isl_union_map_range_factor_domain(
+        isl_union_map_copy(this->dep_write_after_write)) ;
+
+
+
+    isl_union_map * all_deps = isl_union_map_union(
+        read_after_write_dep,
+        write_after_read_dep
+        ) ;
+
+    // all the deps in 1 union map
+    all_deps = isl_union_map_union(all_deps,write_after_write_dep) ;
+
+
+    DEBUG(3, tiramisu::str_dump(" all the dependencies are  : "+std::string(isl_union_map_to_str(all_deps))));
+
+    // all current schedules in 1 union map
+    std::string empty_union = "{}" ;
+    std::string empty_time  = "" ;
+
+    isl_union_map * schedules = isl_union_map_read_from_str(this->get_isl_ctx(),empty_union.c_str()) ;
+
+    isl_map * sche = NULL ;
+
+    for( auto& computation: fuzed_computations)
+    {
+        sche = isl_map_copy(computation->get_schedule()) ;
+
+        sche = isl_map_set_tuple_name(sche,isl_dim_out,empty_time.c_str()) ;
+
+        schedules = isl_union_map_union(schedules,isl_union_map_from_map(sche)) ;
+
+    }
+    
+
+    DEBUG(3, tiramisu::str_dump(" all the used schedules are  : "+std::string(isl_union_map_to_str(schedules))));
+
+    // application to discard unused dep & modelize them in thier time space
+
+    all_deps = isl_union_map_apply_range(all_deps,isl_union_map_copy( schedules )) ;
+
+    all_deps = isl_union_map_apply_domain(all_deps,isl_union_map_copy( schedules )) ;
+
+    DEBUG(3, tiramisu::str_dump(" all the used dependencies union map are  : "+std::string(isl_union_map_to_str(all_deps))));
+
+    isl_map * equation_map = isl_map_from_union_map(all_deps) ;
+
+    DEBUG(3, tiramisu::str_dump(" all the used dependencies after transformed to map are  : "+std::string(isl_map_to_str(equation_map))));
+
+    bool overall_legality = false ;
+
+    /*
+        equate adds restriction that both elements are equal
+        we suppose that legality is checked elsewhere ; so we need to check for loop caried dependencies only
+        if adding equation of == between input set & output set of map for a dimention strictly before the parallel one is empty means : 
+            dep is not a carried one for the parallel loop lvl
+
+        else 
+            if all previous equations added does not make the map empty then the last possiblity is:
+                dep is within the same loop iteration; then parallel is true ( true if equate doesnt make the map empty)
+                else it's false
+                
+    */
+    for(int i=0;i<par_dim;i++)
+    {
+        equation_map = isl_map_equate(equation_map,isl_dim_in,i,isl_dim_out,i) ;
+
+        if(isl_map_is_empty(equation_map))
+        {
+            overall_legality = true ;
+            DEBUG(10, tiramisu::str_dump(" parallalization is legal "));
+            break ;
+        }
+    
+    }
+
+    if(!overall_legality)
+    {
+        equation_map = isl_map_equate(equation_map,isl_dim_in,par_dim,isl_dim_out,par_dim) ;
+
+        if(isl_map_is_empty(equation_map))
+        {
+            overall_legality = false ;
+            DEBUG(3, tiramisu::str_dump(" parallalization is illegal "));
+        }
+        else{
+            overall_legality = true ;
+            DEBUG(3, tiramisu::str_dump(" parallalization is legal "));
+        }
+    }
+
+
+    DEBUG_INDENT(-4); 
+    return overall_legality ;
+
+
 }
 
 const std::map<std::string, tiramisu::buffer *> tiramisu::function::get_mapping() const
@@ -2461,6 +2641,12 @@ bool tiramisu::function::check_legality_for_function()
     isl_set * left_hs = NULL ;
     isl_set * right_hs = NULL ; // hand side
 
+    computation * left_comp = NULL ;
+    computation * right_comp = NULL;
+
+    std::string left_computation_name =  "";
+    std::string right_computation_name = "";
+
     
 
 
@@ -2476,44 +2662,28 @@ bool tiramisu::function::check_legality_for_function()
         right_hs = isl_map_range(isl_map_copy(space_dep)) ;
 
 
-        std::string left_computation_name =  isl_space_get_tuple_name(
+        left_computation_name =  isl_space_get_tuple_name(
             isl_set_get_space(left_hs),isl_dim_set) ;
 
 
-        std::string right_computation_name =  isl_space_get_tuple_name(
+        right_computation_name =  isl_space_get_tuple_name(
             isl_set_get_space(right_hs),isl_dim_set) ;
 
-            DEBUG(3, tiramisu::str_dump(" checking legality of deps "+left_computation_name+" -> "+right_computation_name));
 
-        if(right_computation_name == left_computation_name)
+
+        DEBUG(3, tiramisu::str_dump(" checking legality of deps "+left_computation_name+" -> "+right_computation_name));
+
+            //lhs -> rhs dep 
+        
+        left_comp = this->get_computation_by_name(left_computation_name)[0] ;
+        right_comp = this->get_computation_by_name(right_computation_name)[0]  ;
+
+
+        if(!left_comp->schedules_pair_relation_is_legal(right_comp))
         {
-            // reflexive dep case
-
-            auto right_comp_vector = this->get_computation_by_name(right_computation_name) ;
-
-            if(!right_comp_vector[0]->applied_schedule_is_legal())
-            {
-                over_all_legality = false ;
-                break ;
-            }
-
-        }
-        else{
-
-            //lhs -> rhs dep case
-
-            auto right_comp_vector = this->get_computation_by_name(right_computation_name) ;
-
-            auto left_comp_vector = this->get_computation_by_name(left_computation_name) ;
-
-            if(!left_comp_vector[0]->applied_schedule_is_legal(right_comp_vector[0]))
-            {
                 over_all_legality = false;
                 break;
-            }
-
         }
-
         
 
     }
@@ -2521,6 +2691,13 @@ bool tiramisu::function::check_legality_for_function()
     DEBUG_INDENT(-4);
 
     return over_all_legality ;
+}
+
+
+void tiramisu::function::prepare_schedules_for_legality_checks()
+{
+    this->align_schedules() ;
+    this->gen_ordering_schedules() ;
 }
 
 }

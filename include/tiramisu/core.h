@@ -132,6 +132,45 @@ void codegen_select_schedule_number(int schedule_number,
 void codegen_write_potential_schedules(std::string& path_name,
                       const std::vector<tiramisu::buffer *> &arguments, const std::string obj_filename, const bool gen_cuda_stmt = false) ;
 
+
+/*
+  full check of legality for this function
+  using dependency analysis 
+  must be used after invoking : performe_full_dependecy_analysis
+*/
+bool check_legality_of_function();
+
+
+/*
+     performe a full dependecy analysis RAW/WAR/WAW and the result is stored in attributes inside the function
+    to invoke this method user must : define computations order & define the buffer mapped to each computation
+
+*/
+void performe_full_dependecy_analysis();
+
+/*
+  checks if the gives fuzed computations have thier loop level i as parallel using dependence analysis and legality check
+  must be invoked after performe_full_dependecy_analysis()
+*/
+
+bool loop_parallelization_is_legal(tiramisu::var i , std::vector<tiramisu::computation *> fuzed_computations) ;
+
+/*
+  checks if the gives fuzed computations have thier loop level i as parallel using dependence analysis and legality check
+  must be invoked after performe_full_dependecy_analysis()
+*/
+
+bool loop_parallelization_is_legal_loop_number(int parallel_dim , std::vector<tiramisu::computation *> fuzed_computations) ;
+
+/*
+    prepare the schedules of the computations for legality checks (parallelization / vectorization ...)
+*/
+
+void prepare_schedules_for_legality_checks() ;
+
+
+
+
 /**
   * A class to represent functions in Tiramisu. A function in Tiramisu is composed of
   * a set of computations (tiramisu::computation).
@@ -1034,17 +1073,6 @@ public:
     void gen_c_code() const;
 
 
-    /*save inner computations schedules to defaults schedules to restore */
-    void save_computation_default_schedules() ;
-
-    /*restore saved schedules to inner computations and undo all optimizations*/
-    void restore_function_to_no_optimisations();
-
-    void save_computations_levels() ;
-
-    void restore_computations_levels() ;
-
-
     /**
       * \brief Generate an object file that contains the compiled function.
       * \details This function relies on Halide to generate the object file.
@@ -1179,7 +1207,46 @@ public:
       list of computations that are last one to write in thier respective buffer for all present buffers
     */
 
-    std::vector<tiramisu::computation *> get_live_out_computations_from_buffers_deps() const ;
+    std::vector<std::pair<computation *,isl_set *>> get_live_out_computations_from_buffers_deps() const ;
+
+     /*
+      must be invoked after the call to calculate_dep_flow or after performe_full_dependecy_analysis(), then it gives the list of computations that perform live_in access i.e : 
+      list of computations that contain read access and those reads have no previous write (read from outside the function )
+    */
+
+    std::vector<std::pair<computation *,isl_set *>> get_live_in_computations_from_buffers_deps() const ;
+
+    
+
+    /*save inner computations schedules to defaults schedules to restore */
+    void save_computation_default_schedules() ;
+
+    /*restore saved schedules to inner computations and undo all optimizations*/
+    void restore_function_to_no_optimisations();
+
+    void save_computations_levels() ;
+
+    void restore_computations_levels() ;
+
+    /*
+      checks if the gives fuzed computations have thier loop level i as parallel using dependence analysis and legality check
+      must be invoked after performe_full_dependecy_analysis()
+    */
+
+    bool loop_parallelization_is_legal(tiramisu::var i , std::vector<tiramisu::computation *> fuzed_computations) ;
+
+    /*
+      checks if the gives fuzed computations have thier loop level i as parallel using dependence analysis and legality check
+      must be invoked after performe_full_dependecy_analysis()
+    */
+
+    bool loop_parallelization_is_legal(int parallel_dim , std::vector<tiramisu::computation *> fuzed_computations) ;
+
+    /*
+         prepare the schedules of the computations for legality checks (parallelization / vectorization ...)
+    */
+
+    void prepare_schedules_for_legality_checks() ;
 
 
 
@@ -3813,18 +3880,12 @@ public:
     virtual void parallelize(var L);
 
 
-    /*check if the parallelize of the variable L is legal and correct
-    based on the computation's recursive dependencies only
+    /*
+    check if the parallelize of the variable L is legal and correct
+    based on the computation's recursive dependencies only , so if you are fuzing loop levels this not the method to use
     */
 
     virtual bool parallelization_is_legal(var l);
-
-
-    /*
-      check for all computations specified as input + current computation
-      if parallelisation is legal considiring the dependency analysis with all these computations 
-    */
-    bool parallelization_is_legal(var par_dim_var,std::vector<tiramisu::computation *> fuze_statments);
 
 
 /*check if the parallelize of the variable L is legal and correct i.e
@@ -3839,12 +3900,7 @@ public:
     virtual bool unrolling_is_legal(var l) ;
 
 
-    /*
-    checks if program sens doesnt change after applying skewing i.e no change in depenadencies from uncalcaluted to calculated or viceversa
-    this method checks only the dependencies applied within this specific computation
-    must be invoked after the call to function.calculate_dep_flow() methos
-    */
-   virtual bool applied_schedule_is_legal();
+  
 
 
    /* 
@@ -3860,7 +3916,7 @@ public:
       then he transform any way he wants then he calls again gen_ordering_schedules then align_schedules before calling this method to check his legality
 
    */
-    virtual bool applied_schedule_is_legal(tiramisu::computation * second) ;
+    virtual bool schedules_pair_relation_is_legal(tiramisu::computation * second) ;
     /**
        * Set the access relation of the computation.
        *
