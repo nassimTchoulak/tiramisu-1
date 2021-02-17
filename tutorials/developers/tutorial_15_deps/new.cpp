@@ -98,14 +98,17 @@ int main(int argc, char **argv)
 
     // mapping the computations to buffers
     // for S0 the outer most variable i is free, allowing repetitive calculations 
+   
 
     C_init.store_in(&b_A,{i});
     S0.store_in(&b_A,{j0});
     S1.store_in(&b_output,{i});
 
-
+     C_init.loop_reversal(i,i2) ;
+     
     // get the function object
 
+    
     
 
    /*
