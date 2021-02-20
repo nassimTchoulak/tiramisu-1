@@ -4344,10 +4344,6 @@ void computation::loop_reversal(int L0)
           
     
 
-    /*
-    map = map + "] : " + dimensions_str[0] + " = " + std::to_string(duplicate_ID) + " and " +
-          outDim0_str + " = ( floor(" + inDim1_str + "/"+std::to_string(f_i)+") +"+inDim0_str+") and  "+outDim1_str+"="+inDim1_str+" }";*/
-
 
 
     DEBUG(3, tiramisu::str_dump("Transformation 1 var reversed map (string format) : " + map));

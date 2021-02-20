@@ -6,7 +6,7 @@
 
 int main(){
 
-    Halide::Buffer<_Float64> input(3000,3000);
+    Halide::Buffer<double> input(3000,3000);
     
     function_0(input.raw_buffer()) ;
     

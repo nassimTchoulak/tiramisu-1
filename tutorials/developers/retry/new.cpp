@@ -24,7 +24,7 @@ int main(int argc, char **argv)
 
     tiramisu::var i("i",0,3000) ;
     tiramisu::var j("j",0,3000) ;
-    tiramisu::var t("j2",1,100);
+    tiramisu::var t("t",1,1000);
 
 
 
@@ -40,6 +40,20 @@ int main(int argc, char **argv)
     /*
       declaring the computations
     */
+
+    /*
+        
+      for (t = 0; t <= _PB_TSTEPS - 1; t++)
+        for (i = 1; i<= _PB_N - 2; i++)
+          for (j = 1; j <= _PB_N - 2; j++)
+              A[i][j] = (A[i-1][j-1] + A[i-1][j] + A[i-1][j+1]
+                        + A[i][j-1] + A[i][j] + A[i][j+1]
+                      + A[i+1][j-1] + A[i+1][j] + A[i+1][j+1])/9.0;
+          
+    
+    */
+
+
     tiramisu::computation C_init("C_init", {i,j}, 0.5 );
 
     
@@ -103,9 +117,9 @@ int main(int argc, char **argv)
 
     // parts that changes with sed 
 
-    optimize=false ;
-    a_alpha=0 ;
-    b_beta=0 ;
+    optimize=true ;
+    a_alpha=3 ;
+    b_beta=2 ;
     inner_paral=false;
 
     // end sed parts 
@@ -113,7 +127,7 @@ int main(int argc, char **argv)
     if(optimize)
     {
 
-      S0.angle_skew(i,j,a_alpha,b_beta,false,i1,j1) ;
+      S0.angle_skew(t,i,a_alpha,b_beta,false,i1,j1) ;
 
       if(!S0.schedules_pair_relation_is_legal(&S0))
       {

@@ -237,32 +237,41 @@ void tiramisu::function::calculate_dep_flow()
     
     for(auto& comput : this->get_computations())
     {
-        identity = "{"+comput->get_name() +ready_time_str + "}" ;
+        identity = "{"+comput->get_name() +ready_time_str + "}";
 
-        isl_identity = isl_map_read_from_str(this->get_isl_ctx(),identity.c_str()) ;
+        isl_identity = isl_map_read_from_str(this->get_isl_ctx(),identity.c_str());
 
-        // TODO : use default schedule instead
+        // TODO : use default schedule instead when saving/restoration is implemented
         isl_map * corrected = isl_map_apply_range(isl_map_copy(comput->default_schedule),isl_identity) ;
 
         DEBUG(10, tiramisu::str_dump(" - > compuatation's schedule to time stamp op result is : "+std::string(isl_map_to_str(corrected))));
 
-        isl_schedule = isl_union_map_union(isl_schedule , isl_union_map_from_map(corrected)) ;
+        isl_schedule = isl_union_map_union(isl_schedule , isl_union_map_from_map(corrected));
 
         write_access = isl_union_map_union(write_access,isl_union_map_from_map(isl_map_copy(comput->get_access_relation()))) ;
         
-    } 
+    }
 
-    write_access = isl_union_map_intersect_domain(write_access, this->get_iteration_domain());
+    isl_union_set * iteration_domains = this->get_iteration_domain() ;
+
+    isl_union_map * write_acccess_without_domain = isl_union_map_copy(write_access);
+
+    write_access = isl_union_map_intersect_domain(write_access, isl_union_set_copy(iteration_domains));
+
+    isl_schedule = isl_union_map_intersect_domain(isl_schedule, isl_union_set_copy(iteration_domains));
+    
+    isl_union_map * read_access = isl_union_map_apply_range(
+        isl_union_map_copy(ref_graph),
+        isl_union_map_copy(write_acccess_without_domain)
+    );
+
+    read_access = isl_union_map_intersect_domain(read_access, isl_union_set_copy(iteration_domains));
+
+    //combine reads previous with thier access to establish the read access S0[i,j] -> buf2[j] in read 
 
     DEBUG(3, tiramisu::str_dump("the overall function schedule is : "+std::string(isl_union_map_to_str(isl_schedule))));
 
     DEBUG(3, tiramisu::str_dump("the write access for computations is : "+std::string(isl_union_map_to_str(write_access))));
-    
-    isl_union_map * read_access = isl_union_map_apply_range(
-        isl_union_map_copy(ref_graph),
-        isl_union_map_copy(write_access)
-    );
-    //combine reads previous with thier access to establish the read access S0[i,j] -> buf2[j] in read 
 
     DEBUG(3, tiramisu::str_dump(" The read access for computations : "+std::string(isl_union_map_to_str(read_access))));
 
