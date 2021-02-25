@@ -41,43 +41,39 @@ int main(int argc, char **argv)
       declaring the computations
     */
 
-    /*
-        
-      for (t = 0; t <= _PB_TSTEPS - 1; t++)
-        for (i = 1; i<= _PB_N - 2; i++)
-          for (j = 1; j <= _PB_N - 2; j++)
-              A[i][j] = (A[i-1][j-1] + A[i-1][j] + A[i-1][j+1]
-                        + A[i][j-1] + A[i][j] + A[i][j+1]
-                      + A[i+1][j-1] + A[i+1][j] + A[i+1][j+1])/9.0;
-          
-    
-    */
 
+    tiramisu::computation A("A", {i}, 0.5);
+    tiramisu::computation B("B", {i}, 0.5);
 
-    tiramisu::computation C_init("C_init", {i,j}, 0.5 );
+    //Computations
+    tiramisu::computation B_out("B_out", {t,i}, (A(i-1) + A(i) + A(i + 1))*0.33333);
 
-    
+    tiramisu::computation A_out("A_out", {t,i}, (B(i-1) + B(i) + B(i + 1))*0.33333);
 
-    tiramisu::computation S0("A_out", {t,i,j}, (C_init(i-1, j-1) + C_init(i-1, j) + C_init(i-1, j+1)
-		                               + C_init(i, j-1) + C_init(i, j) + C_init(i, j+1)
-		                               + C_init(i+1, j-1) + C_init(i+1, j) + C_init(i+1, j+1))/9.0);
-    
-
-    // exec order
-  
-    C_init.then(S0,tiramisu::computation::root) ;
-
-    // declaring buffers
-    tiramisu::buffer b_output("b_output", {3000,3000}, tiramisu::p_float64, tiramisu::a_output);
+    // -------------------------------------------------------
+    // Layer II
+    // -------------------------------------------------------
+    A.then(B,i)
+    .then(B_out,tiramisu::computation::root)
+    .then(A_out,t) ;
 
     
 
-    // mapping the computations to buffers
-    // for S0 the outer most variable i is free, allowing repetitive calculations 
-   
+    
+    // -------------------------------------------------------
+    // Layer III
+    // -------------------------------------------------------
+    //Input Buffers
+    tiramisu::buffer b_A("b_A", {3000}, tiramisu::p_float64, tiramisu::a_output);    
+    tiramisu::buffer b_B("b_B", {3000}, tiramisu::p_float64, tiramisu::a_output);    
 
-    C_init.store_in(&b_output,{i,j});
-    S0.store_in(&b_output,{i,j});
+    //Store inputs
+    A.store_in(&b_A);
+    B.store_in(&b_B);
+
+    //Store computations
+    A_out.store_in(&b_A, {i});
+    B_out.store_in(&b_B, {i});
 
      
     // get the function object
@@ -94,8 +90,8 @@ int main(int argc, char **argv)
 
     tiramisu::performe_full_dependecy_analysis();
 
-    C_init.parallelize(i) ;
-    C_init.vectorize(j,10) ;
+    A.parallelize(i) ;
+    //A.vectorize(j,10) ;
 /*
   the list of legality checks are methods that return a boolean :
         True if it's legal & false if not
@@ -104,6 +100,8 @@ int main(int argc, char **argv)
 */
 
     // full check of legality for this function
+
+    
 
     tiramisu::check_legality_of_function();
 
@@ -114,24 +112,36 @@ int main(int argc, char **argv)
     int a_alpha = 0 ;
     int b_beta = 0 ;
     bool inner_paral = false ;
+    bool fuze = false;
 
     // parts that changes with sed 
 
-    optimize=true ;
-    a_alpha=2 ;
-    b_beta=1 ;
+    optimize=false ;
+    a_alpha=3 ;
+    b_beta=2 ;
     inner_paral=false;
+    fuze=false;
 
     // end sed parts 
+
+    if(fuze)
+    {
+       A_out.after_change(B_out,i) ;
+       A_out.shift(i,1) ;
+
+    }
+    
 
     if(optimize)
     {
 
-      S0.angle_skew(t,i,a_alpha,b_beta,false,i1,j1) ;
+      A_out.angle_skew(t,i,a_alpha,b_beta,false,i1,j1) ;
+      B_out.angle_skew(t,i,a_alpha,b_beta,false,i1,j1) ;
 
-      if(!S0.schedules_pair_relation_is_legal(&S0))
+      if(!A_out.schedules_pair_relation_is_legal(&B_out))
       {
-        S0.loop_reversal(j1,j2) ;
+        A_out.loop_reversal(j1,j2) ;
+        B_out.loop_reversal(j1,j2) ;
 
 
 
@@ -140,9 +150,10 @@ int main(int argc, char **argv)
 
            if(inner_paral)
             {
-              if(S0.parallelization_is_legal(j1))
+
+              if(tiramisu::loop_parallelization_is_legal(j1,{&A_out,&B_out}))
               {
-                S0.parallelize(j1) ;std::cout<<" inner parallel ";
+                A_out.parallelize(j1) ;std::cout<<" inner parallel ";
               }
             }
 
@@ -164,7 +175,7 @@ int main(int argc, char **argv)
     
     
 
-    tiramisu::codegen({&b_output}, "new_1.o");
+    tiramisu::codegen({&b_A,&b_B}, "new_1.o");
 
 
 
