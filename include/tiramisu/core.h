@@ -1203,6 +1203,14 @@ public:
     void calculate_dep_flow() ;
 
     /*
+      automatically computes the shifting params if possible that must be applied on target to allow fusing target after origin in the lowers loop lvl
+      the fusing needs to be done outside the methods
+      the list of variables is the variables in the target computation subjected to potentiel shifting
+    */
+
+    void correcting_deps_with_shifting(tiramisu::computation& origin, tiramisu::computation& target, std::vector<tiramisu::var> vars_subjected_to_shifting);
+
+    /*
       must be invoked after the call to calculate_dep_flow or after performe_full_dependecy_analysis(), then it gives the list of computations that perform live_out access i.e : 
       list of computations that are last one to write in thier respective buffer for all present buffers
     */

@@ -9,6 +9,8 @@
 #include <isl/ast_build.h>
 #include <isl/flow.h>
 
+#include <isl/ilp.h>
+
 #include <tiramisu/debug.h>
 #include <tiramisu/core.h>
 
@@ -358,7 +360,401 @@ void tiramisu::function::calculate_dep_flow()
 
 }
 
- std::vector<std::pair<computation *,isl_set *>> tiramisu::function::get_live_out_computations_from_buffers_deps() const  
+void tiramisu::function::correcting_deps_with_shifting(tiramisu::computation& origin, tiramisu::computation& target, std::vector<tiramisu::var> vars_subjected_to_shifting)
+{
+    DEBUG_FCT_NAME(3);
+    DEBUG_INDENT(4);
+    assert(this->dep_read_after_write != NULL );
+    assert(this->dep_write_after_write != NULL );
+    assert(this->dep_write_after_read != NULL );
+    assert(!origin.get_name().empty());
+    assert(!target.get_name().empty());
+
+    std::vector<std::string> loops_names;
+
+    DEBUG(3, tiramisu::str_dump(" Loops included in shifting correcting for target computation are : "));
+
+    for(auto variable : vars_subjected_to_shifting)
+    {
+        assert(variable.get_name().length() > 0);
+        loops_names.push_back(variable.get_name());
+        
+    }
+    //mapping dynamic loop number into the var itself
+    std::unordered_map<int,tiramisu::var> dynamic_var_mapping;
+    
+    std::vector<std::string> original_loop_level_names = target.get_loop_level_names();
+
+    std::vector<int> dimensions =
+        target.get_loop_level_numbers_from_dimension_names(loops_names);
+
+    int schedule_dim_number = 0;
+
+    std::vector<int> all_schedule_dim_numbers;
+
+    for(int i=0;i<dimensions.size();i++)
+    {
+        schedule_dim_number = tiramisu::loop_level_into_dynamic_dimension(dimensions[i]);
+        dynamic_var_mapping[schedule_dim_number] = vars_subjected_to_shifting[i];
+        all_schedule_dim_numbers.push_back(schedule_dim_number);
+        DEBUG(3, tiramisu::str_dump(" -> "+vars_subjected_to_shifting[i].get_name()+" lvl number is in schedule is : "+std::to_string(schedule_dim_number)));
+    }
+
+    std::sort(all_schedule_dim_numbers.begin(), all_schedule_dim_numbers.end()); 
+
+    isl_map * origin_schedule =  isl_map_copy(origin.get_schedule());
+    isl_map * target_schedule =  isl_map_copy(target.get_schedule());
+
+    DEBUG(3, tiramisu::str_dump(" the origin computation schedule : "+std::string(isl_map_to_str(origin_schedule))));
+    DEBUG(3, tiramisu::str_dump(" the target computation (subject to shifting) schedule : "+std::string(isl_map_to_str(target_schedule))));
+
+    isl_union_map * both_schedules =  isl_union_map_from_map(isl_map_copy(origin_schedule));
+
+    both_schedules = isl_union_map_union(
+        both_schedules,
+        isl_union_map_from_map(isl_map_copy(target_schedule)));
+
+    DEBUG(3, tiramisu::str_dump(" union of schedules : "+std::string(isl_union_map_to_str(both_schedules))));
+
+    isl_set * domain_origin = isl_map_range(isl_map_copy(origin_schedule));
+    isl_set * domain_target = isl_map_range(isl_map_copy(target_schedule));
+
+    isl_map * space_map_origin_target = isl_map_from_domain_and_range(
+        isl_set_copy(domain_origin),
+        isl_set_copy(domain_target)
+    );
+
+    isl_map * space_map_target_origin = isl_map_from_domain_and_range(
+        isl_set_copy(domain_target),
+        isl_set_copy(domain_origin)
+    );
+
+    isl_space * space_origin_target = isl_map_get_space(space_map_origin_target);
+    isl_space * space_target_origin = isl_map_get_space(space_map_target_origin);
+
+    DEBUG(3, tiramisu::str_dump(" first space target->origin : "+std::string(isl_space_to_str(space_origin_target))));
+    DEBUG(3, tiramisu::str_dump(" second space origin->target: "+std::string(isl_space_to_str(space_target_origin))));
+
+    isl_union_map * all_deps = isl_union_map_range_factor_domain(
+        isl_union_map_copy(this->dep_read_after_write));
+
+    all_deps = isl_union_map_union(
+        all_deps,
+        isl_union_map_range_factor_domain(isl_union_map_copy(this->dep_write_after_read))
+    );
+
+    all_deps = isl_union_map_union(
+        all_deps,
+        isl_union_map_range_factor_domain(isl_union_map_copy(this->dep_write_after_write))
+    );
+
+    all_deps = isl_union_map_apply_range(
+        all_deps,
+        isl_union_map_copy(both_schedules));
+
+    all_deps = isl_union_map_apply_domain(
+        all_deps,
+        isl_union_map_copy(both_schedules));
+
+    DEBUG(3, tiramisu::str_dump(" Involved dep graph used target->origin or origin->target : "+std::string(isl_union_map_to_str(all_deps))));
+
+    int m1 = isl_map_dim(origin_schedule, isl_dim_out);
+    int m2 = isl_map_dim(target_schedule, isl_dim_out);
+
+    assert(m1 == m2);
+
+    std::string const_str = "[";
+    std::string domain_str = "{"+origin.get_name()+"[";
+
+    for(int i=0;i<m1;i++)
+    {
+        const_str += "cx" + std::to_string(i);
+        domain_str += "cx" + std::to_string(i);
+
+        if(i != (m1-1))
+        {
+            const_str += ",";
+            domain_str += ",";
+        }
+
+    }
+    const_str+="]";
+    domain_str+="]}";
+
+    std::string complete_origin_cst = const_str+"->"+domain_str;
+
+    isl_union_set * origin_fixed_cst = isl_union_set_read_from_str(this->get_isl_ctx(),complete_origin_cst.c_str());
+
+    DEBUG(3, tiramisu::str_dump(" fixed origin set : "+std::string(isl_union_set_to_str(origin_fixed_cst))));
+
+    isl_union_map * dep_constants1 = isl_union_map_intersect_domain(
+        isl_union_map_copy(all_deps),
+        isl_union_set_copy(origin_fixed_cst)
+        );
+    isl_union_map * dep_constants2 = isl_union_map_intersect_range(
+        isl_union_map_copy(all_deps),
+        isl_union_set_copy(origin_fixed_cst)
+        );
+
+    // this map contain all dep which the origin computation is in either domain, range or both
+    dep_constants1 = isl_union_map_union(dep_constants1,dep_constants2);
+
+    isl_map * my_map1 = isl_union_map_extract_map(dep_constants1,isl_space_copy(space_origin_target));
+
+    isl_map * my_map2 = isl_union_map_extract_map(dep_constants1,isl_space_copy(space_target_origin));
+
+    DEBUG(10, tiramisu::str_dump(" the extracted deps are : "+std::string(isl_map_to_str(my_map1))));
+
+    DEBUG(10, tiramisu::str_dump(" the extracted deps are : "+std::string(isl_map_to_str(my_map2))));
+
+    std::vector<isl_basic_map *> all_basic_maps;// contains basic maps 
+    // for correctness : for all maps we need to have domain < range in lexicographical order
+
+    auto f = [](isl_basic_map * bmap,void * user) { 
+
+        std::vector<isl_basic_map *>& myName = *reinterpret_cast<std::vector<isl_basic_map*>*>(user);
+     
+        myName.push_back(bmap);
+        return isl_stat_ok;
+    };
+    
+    isl_stat (*fun_ptr)(isl_basic_map * p,void * m) = (f);
+
+    isl_map_foreach_basic_map(my_map1,fun_ptr,(void * ) &all_basic_maps);
+
+    isl_map_foreach_basic_map(my_map2,fun_ptr,(void * ) &all_basic_maps);
+
+    // preparing the solution map & ...
+
+    // preparing addition solution set
+    std::string set_ni = "[";
+
+    for(int i=0;i<all_schedule_dim_numbers.size();i++)
+    {
+        set_ni +="n"+std::to_string(i);
+
+        if(i != (all_schedule_dim_numbers.size()-1))
+        {
+            set_ni +=",";
+        }
+    }
+    set_ni +="]"; 
+
+    int index_of_involved_vars = 0;
+
+    if(index_of_involved_vars == all_schedule_dim_numbers.size())
+    {
+                index_of_involved_vars = -1;
+    }
+
+    std::string addition_set = "[";
+
+    for(int i=0; i<m1; i++)//dim out size
+    {
+        if((index_of_involved_vars!= - 1) && (all_schedule_dim_numbers[index_of_involved_vars] == i ))
+        {
+            addition_set +="n"+std::to_string(index_of_involved_vars);
+            index_of_involved_vars++;
+
+            if(index_of_involved_vars == all_schedule_dim_numbers.size())
+            {
+                index_of_involved_vars = -1;
+            }
+        }
+        else
+        {
+            addition_set+="0";
+        }
+
+        if( i != (m1-1))
+        {
+            addition_set+=",";
+        }
+    }
+    addition_set+="]";
+
+    std::string addition_map_str = const_str+"->{"+set_ni+"->"+addition_set+"}";
+    std::string solution_set_str = +"{"+set_ni+"}";
+
+    isl_map * addition_map = isl_map_read_from_str(this->get_isl_ctx(),addition_map_str.c_str());
+    isl_set * solution_set = isl_set_read_from_str(this->get_isl_ctx(),solution_set_str.c_str());
+
+    DEBUG(3, tiramisu::str_dump(" solution set is : "+std::string(isl_set_to_str(solution_set))));
+    DEBUG(3, tiramisu::str_dump(" addition map is : "+std::string(isl_map_to_str(addition_map))));
+
+    std::string empty_name = "";
+
+    std::string in_name ="";
+    
+    std::string full_result_str = const_str+"->{"+set_ni+"->"+set_ni+"}";
+    isl_map * full_result = isl_map_read_from_str(this->get_isl_ctx(),full_result_str.c_str());
+
+    DEBUG(3, tiramisu::str_dump(" full result final map "+std::string(isl_map_to_str(full_result))));
+
+
+    std::string unif_origin = "{"+origin.get_name()+const_str+"->"+const_str+"}";
+    std::string unif_target = "{"+target.get_name()+const_str+"->"+const_str+"}";
+    
+
+    isl_map * unif_map_target = isl_map_read_from_str(this->get_isl_ctx(),unif_target.c_str()) ;
+    isl_map * unif_map_origin = isl_map_read_from_str(this->get_isl_ctx(),unif_origin.c_str()) ;
+
+    isl_map * iteration_result = NULL;
+
+
+    for(auto dependency:all_basic_maps)
+    {
+        in_name = std::string(isl_basic_map_get_tuple_name(dependency,isl_dim_in));
+
+        isl_map * dependency_map = isl_map_from_basic_map(isl_basic_map_copy(dependency));
+
+        DEBUG(3, tiramisu::str_dump(" -----> dependendency :: "+std::string(isl_map_to_str(dependency_map))));
+
+        if(in_name == origin.get_name())
+        {
+            dependency_map = isl_map_apply_range(dependency_map,isl_map_copy(unif_map_target));
+            dependency_map = isl_map_apply_domain(dependency_map,isl_map_copy(unif_map_origin));
+            
+            // map origin->target
+            isl_set * origin_set = isl_map_domain(isl_map_copy(dependency_map));
+            isl_set * target_set = isl_map_range(isl_map_copy(dependency_map));
+
+            // origin-free-map is [n1,n2]->[...consts...]
+            isl_map * origin_free_map = isl_map_from_domain_and_range(
+                isl_set_copy(solution_set),
+                isl_set_copy(origin_set)
+            );
+
+            isl_map * target_dependant_map = isl_map_from_domain_and_range(
+                isl_set_copy(solution_set),
+                isl_set_copy(target_set)
+            );
+
+            DEBUG(3, tiramisu::str_dump(" origin map : "+std::string(isl_map_to_str(origin_free_map))));
+
+            DEBUG(3, tiramisu::str_dump(" target before add map : "+std::string(isl_map_to_str(target_dependant_map))));
+
+            DEBUG(3, tiramisu::str_dump(" target addition map : "+std::string(isl_map_to_str(addition_map))));
+
+            target_dependant_map = isl_map_sum(isl_map_copy(target_dependant_map),isl_map_copy(addition_map));
+
+            DEBUG(3, tiramisu::str_dump(" target after addition : "+std::string(isl_map_to_str(target_dependant_map))));
+
+            iteration_result = isl_map_lex_lt_map(origin_free_map,target_dependant_map);
+
+            full_result = isl_map_intersect(full_result,iteration_result);
+
+        }
+        else
+        {
+            dependency_map = isl_map_apply_domain(dependency_map,isl_map_copy(unif_map_target));
+            dependency_map = isl_map_apply_range(dependency_map,isl_map_copy(unif_map_origin));
+            
+            // map target -> origin
+            isl_set * origin_set = isl_map_range(isl_map_copy(dependency_map));
+            isl_set * target_set = isl_map_domain(isl_map_copy(dependency_map));
+
+            // origin-free-map is [n1,n2]->[...consts...]
+            isl_map * origin_free_map = isl_map_from_domain_and_range(
+                isl_set_copy(solution_set),
+                isl_set_copy(origin_set)
+            );
+
+            isl_map * target_dependant_map = isl_map_from_domain_and_range(
+                isl_set_copy(solution_set),
+                isl_set_copy(target_set)
+            );
+
+            DEBUG(3, tiramisu::str_dump(" origin map : "+std::string(isl_map_to_str(origin_free_map))));
+
+            DEBUG(3, tiramisu::str_dump(" target before add map : "+std::string(isl_map_to_str(target_dependant_map))));
+
+            DEBUG(3, tiramisu::str_dump(" target addition map : "+std::string(isl_map_to_str(addition_map))));
+
+            target_dependant_map = isl_map_sum(isl_map_copy(target_dependant_map),isl_map_copy(addition_map));
+
+            DEBUG(3, tiramisu::str_dump(" target after addition : "+std::string(isl_map_to_str(target_dependant_map))));
+
+            iteration_result = isl_map_lex_lt_map(target_dependant_map,origin_free_map);
+
+            full_result = isl_map_intersect(full_result,iteration_result);
+        }
+
+    }
+
+    isl_set * result_set = isl_map_domain(full_result);
+
+    DEBUG(3, tiramisu::str_dump(" full result final set "+std::string(isl_set_to_str(result_set))));
+
+    if(isl_set_is_empty(result_set) == isl_bool_true)
+    {
+        std::vector<isl_basic_set *> all_basic_set_solutions;
+
+        auto f_set = [](isl_basic_set * bmap,void * user) { 
+            std::vector<isl_basic_set *>& myName = *reinterpret_cast<std::vector<isl_basic_set*>*>(user);
+            myName.push_back(bmap);
+            return isl_stat_ok;
+        };
+
+        isl_stat (*fun_ptr_set)(isl_basic_set * p,void * m) = (f_set);
+
+        isl_set_foreach_basic_set(result_set,fun_ptr_set,(void * ) &all_basic_set_solutions);
+
+        isl_set * union_of_correct_solutions = NULL;
+
+        for(auto basic_solution:all_basic_set_solutions)
+        {
+            isl_set * solution_i = isl_basic_set_lexmin(basic_solution);
+
+            if(isl_set_is_singleton(solution_i) == isl_bool_true)
+            {
+                DEBUG(3, tiramisu::str_dump(" one valid solution is :"+std::string(isl_set_to_str(solution_i))));
+                if(union_of_correct_solutions == NULL)
+                {
+                    union_of_correct_solutions = isl_set_copy(solution_i);
+                }
+                else
+                {
+                    union_of_correct_solutions = isl_set_union(union_of_correct_solutions,solution_i);
+                }
+            }
+            else
+            {
+                DEBUG(3, tiramisu::str_dump(" incorrect value :"));
+            }
+        }
+
+        DEBUG(3, tiramisu::str_dump(" union of all solutions is :"+std::string(isl_set_to_str(union_of_correct_solutions))));
+
+        union_of_correct_solutions = isl_set_lexmin(union_of_correct_solutions);
+
+        DEBUG(3, tiramisu::str_dump(" low cost choosen solution is :"+std::string(isl_set_to_str(union_of_correct_solutions))));
+        
+        isl_basic_set * pre_val = isl_basic_set_read_from_str(this->get_isl_ctx(),isl_set_to_str(union_of_correct_solutions));
+
+        int shifting_value = 0;
+
+        for(int i=0; i<all_schedule_dim_numbers.size(); i++)
+        {
+            isl_val * value = isl_basic_set_dim_max_val( isl_basic_set_copy(pre_val),i);
+            shifting_value = isl_val_sgn(value);
+            DEBUG(3, tiramisu::str_dump(" Shifting for var :"+dynamic_var_mapping[all_schedule_dim_numbers[i]].get_name()+" "+std::to_string(shifting_value)));
+
+        }
+    }
+    else
+    {
+        
+    }
+    
+
+    
+
+    DEBUG_INDENT(-4);
+
+}
+
+std::vector<std::pair<computation *,isl_set *>> tiramisu::function::get_live_out_computations_from_buffers_deps() const  
 {
     
 
