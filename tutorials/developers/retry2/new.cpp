@@ -103,9 +103,7 @@ int main(int argc, char **argv)
 
     
     A_out.after_change(B_out,i) ;
-    A_out.shift(i,1) ;
-
-    tiramisu::check_legality_of_function();
+    
 
     tiramisu::prepare_schedules_for_legality_checks() ;
 
@@ -123,6 +121,10 @@ int main(int argc, char **argv)
     inner_paral=false;
 
     // end sed parts 
+
+    tiramisu::function * fct = tiramisu::global::get_implicit_function() ;
+
+    fct->correcting_deps_with_shifting(B_out,A_out,{t,i});
 
     if(optimize)
     {

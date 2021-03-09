@@ -686,7 +686,7 @@ void tiramisu::function::correcting_deps_with_shifting(tiramisu::computation& or
 
     DEBUG(3, tiramisu::str_dump(" full result final set "+std::string(isl_set_to_str(result_set))));
 
-    if(isl_set_is_empty(result_set) == isl_bool_true)
+    if( isl_set_is_empty(result_set) == isl_bool_false)
     {
         std::vector<isl_basic_set *> all_basic_set_solutions;
 
@@ -737,7 +737,7 @@ void tiramisu::function::correcting_deps_with_shifting(tiramisu::computation& or
         for(int i=0; i<all_schedule_dim_numbers.size(); i++)
         {
             isl_val * value = isl_basic_set_dim_max_val( isl_basic_set_copy(pre_val),i);
-            shifting_value = isl_val_sgn(value);
+            shifting_value = isl_val_get_d(value);
             DEBUG(3, tiramisu::str_dump(" Shifting for var :"+dynamic_var_mapping[all_schedule_dim_numbers[i]].get_name()+" "+std::to_string(shifting_value)));
 
         }
@@ -953,12 +953,12 @@ bool tiramisu::function::loop_parallelization_is_legal(int dim_parallel , std::v
     /*
         equate adds restriction that both elements are equal
         we suppose that legality is checked elsewhere ; so we need to check for loop caried dependencies only
-        if adding equation of == between input set & output set of map for a dimention strictly before the parallel one is empty means : 
+        if adding equation of == between input set & output set of map for a dimension strictly before the parallel one is empty means : 
             dep is not a carried one for the parallel loop lvl
 
         else 
-            if all previous equations added does not make the map empty then the last possiblity is:
-                dep is within the same loop iteration; then parallel is true ( true if equate doesnt make the map empty)
+            if all previous equations added does not make the map empty then the last possibility is:
+                dep is within the same loop iteration; then parallel is true ( true if equate doesn't make the map empty)
                 else it's false
                 
     */
@@ -966,10 +966,12 @@ bool tiramisu::function::loop_parallelization_is_legal(int dim_parallel , std::v
     {
         equation_map = isl_map_equate(equation_map,isl_dim_in,i,isl_dim_out,i) ;
 
+        DEBUG(3, tiramisu::str_dump(" --> remaining deps at itr"+std::to_string(i)+" : "+std::string(isl_map_to_str(equation_map))));
+
         if(isl_map_is_empty(equation_map))
         {
             overall_legality = true ;
-            DEBUG(10, tiramisu::str_dump(" parallalization is legal "));
+            DEBUG(10, tiramisu::str_dump(" parallelization is legal "));
             break ;
         }
     
@@ -977,16 +979,18 @@ bool tiramisu::function::loop_parallelization_is_legal(int dim_parallel , std::v
 
     if(!overall_legality)
     {
-        equation_map = isl_map_equate(equation_map,isl_dim_in,par_dim,isl_dim_out,par_dim) ;
+        isl_map * equation_map_final = isl_map_equate(isl_map_copy(equation_map),isl_dim_in,par_dim,isl_dim_out,par_dim) ;
 
-        if(isl_map_is_empty(equation_map))
+        DEBUG(3, tiramisu::str_dump(" --> remaining deps at itr"+std::to_string(par_dim)+" : "+std::string(isl_map_to_str(equation_map_final))));
+
+        if(isl_map_is_equal(equation_map,equation_map_final) == isl_bool_false)
         {
             overall_legality = false ;
-            DEBUG(3, tiramisu::str_dump(" parallalization is illegal "));
+            DEBUG(3, tiramisu::str_dump(" parallelization is illegal "));
         }
         else{
             overall_legality = true ;
-            DEBUG(3, tiramisu::str_dump(" parallalization is legal "));
+            DEBUG(3, tiramisu::str_dump(" parallelization is legal "));
         }
     }
 

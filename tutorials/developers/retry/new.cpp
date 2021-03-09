@@ -117,10 +117,10 @@ int main(int argc, char **argv)
 
     // parts that changes with sed 
 
-    optimize=true ;
-    a_alpha=2 ;
-    b_beta=1 ;
-    inner_paral=false;
+    optimize=false ;
+    a_alpha=1 ;
+    b_beta=-1 ;
+    inner_paral=true;
 
     // end sed parts 
 

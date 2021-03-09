@@ -22,9 +22,9 @@ int main(int argc, char **argv)
     // declaring variables
 
 
-    tiramisu::var i("i",0,5000) ;
+    tiramisu::var i("i",0,3000) ;
     tiramisu::var j("j",0,3000) ;
-    tiramisu::var t("t",1,2000);
+    tiramisu::var t("t",1,100);
 
 
 
@@ -42,13 +42,16 @@ int main(int argc, char **argv)
     */
 
 
-    tiramisu::computation A("A", {i}, 0.5);
-    tiramisu::computation B("B", {i}, 0.5);
+    tiramisu::computation A("A", {i,j}, 0.5);
+    tiramisu::computation B("B", {i,j}, 0.5);
 
     //Computations
-    tiramisu::computation B_out("B_out", {t,i}, (A(i-1) + A(i) + A(i + 1))*0.33333);
+    tiramisu::computation B_out("B_out", {t,i,j}, ( A(i-1,j+1) + A(i,j+1) + A(i+1,j+1) + 
+                                                  A(i-1,j) + A(i,j) + A(i+1,j)+
+                                                  A(i-1,j-1)+ A(i,j-1) + A(i+1,j-1) )
+                                                  * 0.125 );
 
-    tiramisu::computation A_out("A_out", {t,i}, (B(i-1) + B(i) + B(i + 1))*0.33333);
+    tiramisu::computation A_out("A_out", {t,i,j}, (  B(i+1,j-1) + B(i+1,j+1) + B(i-1,j+1) +B(i-1,j-1) )*0.25  );
 
     // -------------------------------------------------------
     // Layer II
@@ -64,16 +67,16 @@ int main(int argc, char **argv)
     // Layer III
     // -------------------------------------------------------
     //Input Buffers
-    tiramisu::buffer b_A("b_A", {5000}, tiramisu::p_float64, tiramisu::a_output);    
-    tiramisu::buffer b_B("b_B", {5000}, tiramisu::p_float64, tiramisu::a_output);    
+    tiramisu::buffer b_A("b_A", {3000,3000}, tiramisu::p_float64, tiramisu::a_output);    
+    tiramisu::buffer b_B("b_B", {3000,3000}, tiramisu::p_float64, tiramisu::a_output);    
 
     //Store inputs
     A.store_in(&b_A);
     B.store_in(&b_B);
 
     //Store computations
-    A_out.store_in(&b_A, {i});
-    B_out.store_in(&b_B, {i});
+    A_out.store_in(&b_A, {i,j});
+    B_out.store_in(&b_B, {i,j});
 
      
     // get the function object
@@ -102,8 +105,10 @@ int main(int argc, char **argv)
     // full check of legality for this function
 
     
-
-    tiramisu::check_legality_of_function();
+    //A_out.after_change(B_out,j) ;
+    //A_out.shift(i,1);
+    //A_out.shift(j,1);
+    
 
     tiramisu::prepare_schedules_for_legality_checks() ;
 
@@ -112,25 +117,19 @@ int main(int argc, char **argv)
     int a_alpha = 0 ;
     int b_beta = 0 ;
     bool inner_paral = false ;
-    bool fuze = false;
 
     // parts that changes with sed 
 
-    optimize=true ;
+    optimize=false ;
     a_alpha=3 ;
     b_beta=2 ;
     inner_paral=false;
-    fuze=true;
 
     // end sed parts 
 
-    if(fuze)
-    {
-       A_out.after_change(B_out,i) ;
-       A_out.shift(i,1) ;
+    tiramisu::function * fct = tiramisu::global::get_implicit_function() ;
 
-    }
-    
+    fct->correcting_deps_with_shifting(B_out,A_out,{t,i,j});
 
     if(optimize)
     {
@@ -150,21 +149,11 @@ int main(int argc, char **argv)
 
            if(inner_paral)
             {
-              if(fuze)
+
+              if(tiramisu::loop_parallelization_is_legal(j1,{&A_out,&B_out}))
               {
-                  if(tiramisu::loop_parallelization_is_legal(j1,{&A_out,&B_out}))
-                  {
-                    A_out.parallelize(j1) ;std::cout<<" inner parallel ";
-                  }
-
-
+                A_out.parallelize(j1) ;std::cout<<" inner parallel ";
               }
-              else{
-                  A_out.parallelize(j1) ;
-                  B_out.parallelize(j1) ;
-
-              }
-              
             }
 
 
@@ -173,12 +162,6 @@ int main(int argc, char **argv)
      
 
     }
-    else
-    {
-                 // A_out.parallelize(i) ;
-                 // B_out.parallelize(i) ;
-    }
-    
 
     if(tiramisu::check_legality_of_function())
     {
@@ -188,6 +171,7 @@ int main(int argc, char **argv)
     {
       std::cout<<" illegal ";
     }
+
     
     
 
