@@ -22,9 +22,9 @@ int main(int argc, char **argv)
     // declaring variables
 
 
-    tiramisu::var i("i",0,3000) ;
-    tiramisu::var j("j",0,3000) ;
-    tiramisu::var t("t",1,100);
+    tiramisu::var i("i",0,6000) ;
+    tiramisu::var j("j",0,6000) ;
+    tiramisu::var t("t",1,1000);
 
 
 
@@ -32,6 +32,7 @@ int main(int argc, char **argv)
     tiramisu::var i2("i2");
     tiramisu::var j1("j1");
     tiramisu::var j2("j2");
+    tiramisu::var j3("j3");
 
 
     
@@ -67,8 +68,8 @@ int main(int argc, char **argv)
     // Layer III
     // -------------------------------------------------------
     //Input Buffers
-    tiramisu::buffer b_A("b_A", {3000,3000}, tiramisu::p_float64, tiramisu::a_output);    
-    tiramisu::buffer b_B("b_B", {3000,3000}, tiramisu::p_float64, tiramisu::a_output);    
+    tiramisu::buffer b_A("b_A", {6000,6000}, tiramisu::p_float64, tiramisu::a_output);    
+    tiramisu::buffer b_B("b_B", {6000,6000}, tiramisu::p_float64, tiramisu::a_output);    
 
     //Store inputs
     A.store_in(&b_A);
@@ -117,6 +118,7 @@ int main(int argc, char **argv)
     int a_alpha = 0 ;
     int b_beta = 0 ;
     bool inner_paral = false ;
+    int version = 0;
 
     // parts that changes with sed 
 
@@ -125,11 +127,120 @@ int main(int argc, char **argv)
     b_beta=2 ;
     inner_paral=false;
 
+    version=1;
+    // v0 sequentiel
+    // v1 sequentiel fuzed
+    // v2 infused parallel 
+    // v3 fuze+skewing
+    // v4 fuze + skewing + parallel
+    // v5 fuze + skewing + parallel splitted
+    // v6 fuze + skewing outer + parallel 
+
     // end sed parts 
 
-    tiramisu::function * fct = tiramisu::global::get_implicit_function() ;
+    //tiramisu::function * fct = tiramisu::global::get_implicit_function() ;
 
-    fct->correcting_deps_with_shifting(B_out,A_out,{t,i,j});
+    //fct->correcting_deps_with_shifting(B_out,A_out,{t,i,j});
+
+    switch(version) {
+    case 0:
+      // code block
+      std::cout<<" sequentiel unfuzed ";
+
+      break;
+    case 1:
+      // code block
+       std::cout<<" sequentiel + fuzed ";
+       A_out.after_change(B_out,j) ;
+       A_out.shift(i,1);
+       A_out.shift(j,1);
+
+      break;
+    case 2:
+      // code block
+      std::cout<<" parallel + unfuzed ";
+      A_out.parallelize(i);
+      B_out.parallelize(i);
+
+      break;
+    case 3:
+      // code block
+      std::cout<<" fuzed + inner skewing";
+       A_out.after_change(B_out,j) ;
+       A_out.shift(i,1);
+       A_out.shift(j,1);
+
+       A_out.angle_skew(i,j,1,1,false,i1,j1);
+       B_out.angle_skew(i,j,1,1,false,i1,j1);
+
+      break;
+    case 4:
+      // code block
+      std::cout<<" fuzed + inner skewing + parallel  ";
+       A_out.after_change(B_out,j) ;
+       A_out.shift(i,1);
+       A_out.shift(j,1);
+
+       A_out.angle_skew(i,j,2,1,false,i1,j1);
+       B_out.angle_skew(i,j,2,1,false,i1,j1);
+
+       A_out.parallelize(j1);
+
+      break;
+
+    case 5:
+      // code block
+      std::cout<<" fuzed + skewing + parallel + splitting";
+       A_out.after_change(B_out,j) ;
+       A_out.shift(i,1);
+       A_out.shift(j,1);
+
+       A_out.angle_skew(i,j,2,1,false,i1,j1);
+       B_out.angle_skew(i,j,2,1,false,i1,j1);
+
+       A_out.split(j1,200,j2,j3) ;
+       B_out.split(j1,200,j2,j3) ;
+
+       A_out.parallelize(j2);
+
+    break;
+
+    case 6:
+      // code block
+      std::cout<<" fuzed + outer skewing + parallel ";
+       A_out.after_change(B_out,j) ;
+       A_out.shift(i,1);
+       A_out.shift(j,1);
+
+       A_out.angle_skew(t,i,2,1,false,i1,j1);
+       B_out.angle_skew(t,i,2,1,false,i1,j1);
+
+       A_out.parallelize(j1);
+
+    break;
+
+    case 7:
+      // code block
+      std::cout<<" fuzed + outer skewing + parallel ";
+       A_out.after_change(B_out,j) ;
+       A_out.shift(i,1);
+       A_out.shift(j,1);
+
+       A_out.angle_skew(t,i,2,1,false,i1,j1);
+       B_out.angle_skew(t,i,2,1,false,i1,j1);
+
+       A_out.split(j1,200,j2,j3) ;
+       B_out.split(j1,200,j2,j3) ;
+
+       A_out.parallelize(j2);
+
+    break;
+
+    default:
+      // code block
+      std::cout<<" none ";
+
+    }
 
     if(optimize)
     {
@@ -142,24 +253,17 @@ int main(int argc, char **argv)
         A_out.loop_reversal(j1,j2) ;
         B_out.loop_reversal(j1,j2) ;
 
-
-
       }
       else{
 
            if(inner_paral)
             {
-
               if(tiramisu::loop_parallelization_is_legal(j1,{&A_out,&B_out}))
               {
                 A_out.parallelize(j1) ;std::cout<<" inner parallel ";
               }
             }
-
-
       }
-
-     
 
     }
 
