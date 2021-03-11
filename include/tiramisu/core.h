@@ -1210,6 +1210,13 @@ public:
 
     void correcting_deps_with_shifting(tiramisu::computation& origin, tiramisu::computation& target, std::vector<tiramisu::var> vars_subjected_to_shifting);
 
+    /**
+     * create compute skewing 2d case best skewing paremeters using deps analysis
+     * 
+     */
+
+    void compute_best_legal_skewing(std::vector<tiramisu::computation *> fuzed_computations,tiramisu::var outer_variable,tiramisu::var inner_variable);
+
     /*
       must be invoked after the call to calculate_dep_flow or after performe_full_dependecy_analysis(), then it gives the list of computations that perform live_out access i.e : 
       list of computations that are last one to write in thier respective buffer for all present buffers

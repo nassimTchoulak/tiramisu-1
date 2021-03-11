@@ -127,7 +127,7 @@ int main(int argc, char **argv)
     b_beta=2 ;
     inner_paral=false;
 
-    version=1;
+    version=9;
     // v0 sequentiel
     // v1 sequentiel fuzed
     // v2 infused parallel 
@@ -138,9 +138,13 @@ int main(int argc, char **argv)
 
     // end sed parts 
 
-    //tiramisu::function * fct = tiramisu::global::get_implicit_function() ;
+    tiramisu::function * fct = tiramisu::global::get_implicit_function() ;
+      A_out.after_change(B_out,j) ;
+       A_out.shift(i,1);
+       A_out.shift(j,1);
+       fct->prepare_schedules_for_legality_checks();
+     fct->compute_best_legal_skewing({&B_out,&A_out},t,i);
 
-    //fct->correcting_deps_with_shifting(B_out,A_out,{t,i,j});
 
     switch(version) {
     case 0:
@@ -163,7 +167,18 @@ int main(int argc, char **argv)
       B_out.parallelize(i);
 
       break;
+
     case 3:
+      // code block
+      std::cout<<" parallel + unfuzed +split ";
+
+      A_out.split(i,200,j2,j3) ;
+      B_out.split(i,200,j2,j3) ;
+      A_out.parallelize(j2);
+      B_out.parallelize(j2);
+
+      break;
+    case 4:
       // code block
       std::cout<<" fuzed + inner skewing";
        A_out.after_change(B_out,j) ;
@@ -174,7 +189,7 @@ int main(int argc, char **argv)
        B_out.angle_skew(i,j,1,1,false,i1,j1);
 
       break;
-    case 4:
+    case 5:
       // code block
       std::cout<<" fuzed + inner skewing + parallel  ";
        A_out.after_change(B_out,j) ;
@@ -188,7 +203,7 @@ int main(int argc, char **argv)
 
       break;
 
-    case 5:
+    case 6:
       // code block
       std::cout<<" fuzed + skewing + parallel + splitting";
        A_out.after_change(B_out,j) ;
@@ -205,7 +220,7 @@ int main(int argc, char **argv)
 
     break;
 
-    case 6:
+    case 7:
       // code block
       std::cout<<" fuzed + outer skewing + parallel ";
        A_out.after_change(B_out,j) ;
@@ -219,9 +234,9 @@ int main(int argc, char **argv)
 
     break;
 
-    case 7:
+    case 8:
       // code block
-      std::cout<<" fuzed + outer skewing + parallel ";
+      std::cout<<" fuzed + outer skewing + parallel + split";
        A_out.after_change(B_out,j) ;
        A_out.shift(i,1);
        A_out.shift(j,1);
@@ -266,7 +281,7 @@ int main(int argc, char **argv)
       }
 
     }
-
+    tiramisu::prepare_schedules_for_legality_checks();
     if(tiramisu::check_legality_of_function())
     {
        std::cout<<" legal ";
