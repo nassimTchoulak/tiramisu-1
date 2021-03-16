@@ -2574,19 +2574,19 @@ void computation::after_low_level(computation &comp, int level)
     isl_map *new_sched = NULL;
     for (int i = 1; i<=dim; i=i+2)
     {
-        if (i < dim)
-        {
-            // Get the constant in comp, add +1 to it and set it to sched1
-            int order = isl_map_get_static_dim(comp.get_schedule(), i);
-            new_sched = isl_map_copy(this->get_schedule());
-            new_sched = add_eq_to_schedule_map(i, 0, -1, order, new_sched);
-        }
-        else // (i == dim)
+        if (i == dim)
         {
             // Get the constant in comp, add +1 to it and set it to sched1
             int order = isl_map_get_static_dim(comp.get_schedule(), i);
             new_sched = isl_map_copy(this->get_schedule());
             new_sched = add_eq_to_schedule_map(i, 0, -1, order + 10, new_sched);
+        }
+        else // 
+        {
+            // Get the constant in comp, add +1 to it and set it to sched1
+            int order = isl_map_get_static_dim(comp.get_schedule(), i);
+            new_sched = isl_map_copy(this->get_schedule());
+            new_sched = add_eq_to_schedule_map(i, 0, -1, order, new_sched);
         }
         this->set_schedule(new_sched);
     }

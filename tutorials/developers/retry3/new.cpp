@@ -139,11 +139,20 @@ int main(int argc, char **argv)
     // end sed parts 
 
     tiramisu::function * fct = tiramisu::global::get_implicit_function() ;
-      A_out.after_change(B_out,j) ;
-       A_out.shift(i,1);
+      A_out.after(B_out,j) ;
+      fct->reset_all_static_dims_to_zero();
+      fct->prepare_schedules_for_legality_checks();
+      auto list = fct->correcting_loop_fusion_with_shifting({&B_out},A_out,{t,i,j});
+      assert(list.size() > 0);
+      for(auto tup:list)
+      {
+        A_out.shift(std::get<0>(tup),std::get<1>(tup));
+      }
+      assert(tiramisu::check_legality_of_function() == true);
+     /*  A_out.shift(i,1);
        A_out.shift(j,1);
        fct->prepare_schedules_for_legality_checks();
-     fct->compute_best_legal_skewing({&B_out,&A_out},t,i);
+     fct->compute_best_legal_skewing({&B_out,&A_out},t,i); */
 
 
     switch(version) {

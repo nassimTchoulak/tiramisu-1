@@ -1211,6 +1211,18 @@ public:
     void correcting_deps_with_shifting(tiramisu::computation& origin, tiramisu::computation& target, std::vector<tiramisu::var> vars_subjected_to_shifting);
 
     /**
+     * Automatically computes the shifting parameters for variables \p vars_subjected_to_shifting that would allow to legally fuse \p current computation,
+     * with the vector of computations \p previous_computations if it is possible.
+     * This method return a vector of tuples mapping each variable with the required shifting if the fusion is possible, and an empty vector otherwise(impossible fusion).
+     * Note: In case where the fusion is legal and doesn't require shifting, the vector of tuples would map the variable to 0.
+     * The method relies fully on the dependence analysis result, so the  method \p performe_full_dependency_analysis() must be invoked before.
+     * To correctly invoke this method : schedules must be aligned (same out dimension size) and ordered,
+     * so invoking \p prepare_schedules_for_legality_checks() method before is mandatory. 
+     * 
+    */
+    std::vector<std::tuple<tiramisu::var,int>> correcting_loop_fusion_with_shifting(std::vector<tiramisu::computation*> previous_computations, tiramisu::computation current, std::vector<tiramisu::var> vars_subjected_to_shifting);
+
+    /**
      * create compute skewing 2d case best skewing paremeters using deps analysis
      * 
      */
@@ -1263,7 +1275,12 @@ public:
 
     void prepare_schedules_for_legality_checks() ;
 
-
+    /**
+     * resets all the static beta dimensions in all the computations to Zero.
+     * This would allow to generate the execution of fuction.generate_ordering many times without issues.
+     * Although, the static beta dimenesion and ordering that are not specified using the scheduling graph would be lost.
+    */
+    void reset_all_static_dims_to_zero();
 
 };
 
