@@ -1224,14 +1224,33 @@ public:
 
     /**
      * create compute skewing 2d case best skewing paremeters using deps analysis
+     * first : upper weakly solved
+     * second : upper strongly solved
+     * third : lower weakly solved
+     * forth : lower strongly solved
+     * fifth : outermost parallism
      * 
+     * legal_process describes the computation is 3 states depending on it's value:
+     *  1  : correct process with involved dependencies
+     *  0  : correct process due to the lack of dependencies within selected fuzed_computations
+     * -1  : illegal process (impossible to solve dependencies)
      */
+    std::vector<isl_basic_set*> compute_best_legal_skewing(std::vector<tiramisu::computation *> fuzed_computations,tiramisu::var outer_variable,tiramisu::var inner_variable, 
+                                                     int&  legal_process);
 
-    void compute_best_legal_skewing(std::vector<tiramisu::computation *> fuzed_computations,tiramisu::var outer_variable,tiramisu::var inner_variable);
+    
+    /**
+     * This method returns 3 vectors inside a tuple,
+     * First vector contains either 1 skewing parameters pairs of <int,int> that allows outer_variable parallism or nothing.
+     * Second pair contains vector of skewing pairs that enables innermost parallism, it's size is maxed at 2*nb_parallel
+     * Third pair contains vector of skewing parameters pairs that should in theory improve locality without having parallism
+    */
+    std::tuple<std::vector<std::pair<int,int>>, std::vector<std::pair<int,int>>, std::vector<std::pair<int,int>>> skewing_local_solver(std::vector<tiramisu::computation *> fuzed_computations,
+                                                                            tiramisu::var outer_variable,tiramisu::var inner_variable, int nb_parallel);
 
     /*
       must be invoked after the call to calculate_dep_flow or after performe_full_dependecy_analysis(), then it gives the list of computations that perform live_out access i.e : 
-      list of computations that are last one to write in thier respective buffer for all present buffers
+      list of computations that are last one to write in their respective buffer for all present buffers
     */
 
     std::vector<std::pair<computation *,isl_set *>> get_live_out_computations_from_buffers_deps() const ;
